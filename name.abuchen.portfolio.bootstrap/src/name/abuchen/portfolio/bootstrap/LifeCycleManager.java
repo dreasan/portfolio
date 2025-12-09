@@ -20,6 +20,7 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
 import org.eclipse.e4.core.contexts.IEclipseContext;
 import org.eclipse.e4.core.di.extensions.Preference;
+import org.eclipse.e4.core.services.events.IEventBroker;
 import org.eclipse.e4.core.services.log.Logger;
 import org.eclipse.e4.core.services.statusreporter.StatusReporter;
 import org.eclipse.e4.ui.internal.workbench.swt.IEventLoopAdvisor;
@@ -32,6 +33,7 @@ import org.eclipse.e4.ui.model.application.ui.basic.MPart;
 import org.eclipse.e4.ui.model.application.ui.basic.MWindow;
 import org.eclipse.e4.ui.workbench.IModelResourceHandler;
 import org.eclipse.e4.ui.workbench.IWorkbench;
+import org.eclipse.e4.ui.workbench.UIEvents;
 import org.eclipse.e4.ui.workbench.lifecycle.PostContextCreate;
 import org.eclipse.e4.ui.workbench.lifecycle.PreSave;
 import org.eclipse.e4.ui.workbench.lifecycle.ProcessRemovals;
@@ -40,14 +42,18 @@ import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.util.EcoreUtil;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Shell;
 import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.Version;
+import org.osgi.service.event.Event;
+import org.osgi.service.event.EventHandler;
 import org.osgi.service.prefs.BackingStoreException;
 
 @SuppressWarnings("restriction")
 public class LifeCycleManager
 {
     private static final String MODEL_VERSION = "model.version"; //$NON-NLS-1$
+    private static final String WINDOW_FULLSCREEN = "window.fullscreen"; //$NON-NLS-1$
 
     @Inject
     @Preference(nodePath = "name.abuchen.portfolio.bootstrap")
@@ -63,6 +69,35 @@ public class LifeCycleManager
         checkForModelChanges();
         checkForRequestToClearPersistedState();
         setupEventLoopAdvisor(context);
+        restoreFullScreenState(context);
+    }
+
+    private void restoreFullScreenState(IEclipseContext context)
+    {
+        if (!Platform.OS_MACOSX.equals(Platform.getOS()))
+            return;
+
+        boolean isFullScreen = preferences.getBoolean(WINDOW_FULLSCREEN, false);
+        if (!isFullScreen)
+            return;
+
+        IEventBroker eventBroker = context.get(IEventBroker.class);
+        eventBroker.subscribe(UIEvents.UILifeCycle.APP_STARTUP_COMPLETE, new EventHandler()
+        {
+            @Override
+            public void handleEvent(Event event)
+            {
+                MApplication app = context.get(MApplication.class);
+                for (MWindow window : app.getChildren())
+                {
+                    if ("name.abuchen.portfolio.ui.window.mainwindow".equals(window.getElementId()) //$NON-NLS-1$
+                                    && window.getWidget() instanceof Shell)
+                    {
+                        ((Shell) window.getWidget()).setFullScreen(true);
+                    }
+                }
+            }
+        });
     }
 
     private void checkForCustomCSSFile()
@@ -209,9 +244,26 @@ public class LifeCycleManager
     @PreSave
     public void doPreSave(MApplication app, EModelService modelService, IModelResourceHandler handler)
     {
+        saveFullScreenState(app);
         saveModelVersion();
         removePortfolioPartsWithoutPersistedFile(app, modelService);
         saveCopyOfApplicationModel(app, handler);
+    }
+
+    private void saveFullScreenState(MApplication app)
+    {
+        if (!Platform.OS_MACOSX.equals(Platform.getOS()))
+            return;
+
+        for (MWindow window : app.getChildren())
+        {
+            if ("name.abuchen.portfolio.ui.window.mainwindow".equals(window.getElementId()) //$NON-NLS-1$
+                            && window.getWidget() instanceof Shell)
+            {
+                boolean isFullScreen = ((Shell) window.getWidget()).getFullScreen();
+                preferences.putBoolean(WINDOW_FULLSCREEN, isFullScreen);
+            }
+        }
     }
 
     private void saveModelVersion()
