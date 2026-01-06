@@ -77,6 +77,21 @@ public class LifeCycleManager
         if (!Platform.OS_MACOSX.equals(Platform.getOS()))
             return;
 
+        // Clear fullscreen preference if the UI state is being reset
+        if (Boolean.parseBoolean(System.getProperty(IWorkbench.CLEAR_PERSISTED_STATE, Boolean.FALSE.toString())))
+        {
+            preferences.remove(WINDOW_FULLSCREEN);
+            try
+            {
+                preferences.flush();
+            }
+            catch (BackingStoreException e)
+            {
+                logger.error(e);
+            }
+            return;
+        }
+
         boolean isFullScreen = preferences.getBoolean(WINDOW_FULLSCREEN, false);
         if (!isFullScreen)
             return;
